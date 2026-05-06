@@ -1,5 +1,22 @@
 import pytest
+from unittest.mock import patch
 from agent.fitness_agent import FitnessAgent
+
+
+MOCK_MEAL_PLAN = {
+    "model_used": "llama3.2",
+    "target_calories": 2000,
+    "target_macros": {},
+    "days": {},
+    "raw": "",
+}
+
+
+@pytest.fixture(autouse=True)
+def mock_llm():
+    """Prevent any test from making a real Ollama call."""
+    with patch("tools.meal_plan_generator.ollama.chat", return_value={"message": {"content": ""}}):
+        yield
 
 
 @pytest.fixture
@@ -44,6 +61,11 @@ def test_result_contains_workout_schedule(agent, valid_user):
     assert "schedule" in result["workout"]
 
 
+def test_result_contains_meal_plan(agent, valid_user):
+    result = agent.run(valid_user)
+    assert "meal_plan" in result
+
+
 def test_invalid_input_returns_failure(agent, valid_user):
     valid_user["age"] = 999
     result = agent.run(valid_user)
@@ -71,7 +93,7 @@ def test_weight_loss_produces_calorie_deficit(agent, valid_user):
 
 
 def test_muscle_gain_produces_calorie_surplus(agent, valid_user):
-    cal = agent.run(valid_user)["nutrition"]["calories"]  # goal = muscle_gain
+    cal = agent.run(valid_user)["nutrition"]["calories"]
     assert cal["target_calories"] > cal["tdee"]
 
 
