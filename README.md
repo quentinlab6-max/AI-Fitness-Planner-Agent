@@ -62,23 +62,25 @@ The project structure is as follows:
 ```
 AI-Fitness-Planner-Agent/
 ├── agent/
-│   └── fitness_agent.py        # Agent orchestrator
+│   └── fitness_agent.py          # Agent orchestrator
 ├── models/
-│   └── user_profile.py         # UserProfile dataclass
+│   └── user_profile.py           # UserProfile dataclass
 ├── tools/
-│   ├── calorie_calculator.py   # Tool 1: BMR/TDEE calculation
-│   ├── macro_calculator.py     # Tool 2: Macronutrient distribution
-│   └── workout_generator.py    # Tool 3: Weekly workout plan
+│   ├── calorie_calculator.py     # Tool 1: BMR/TDEE calculation
+│   ├── macro_calculator.py       # Tool 2: Macronutrient distribution
+│   ├── workout_generator.py      # Tool 3: Weekly workout plan
+│   └── meal_plan_generator.py    # Tool 4: LLM-generated 7-day meal calendar
 ├── validation/
-│   └── input_validator.py      # Input validation logic
+│   └── input_validator.py        # Input validation logic
 ├── tests/
 │   ├── test_agent.py
 │   ├── test_calorie_calculator.py
 │   ├── test_input_validator.py
 │   ├── test_macro_calculator.py
+│   ├── test_meal_plan_generator.py
 │   └── test_workout_generator.py
-├── main.py                     # CLI entry point
-├── pytest.ini                  # Test configuration
+├── main.py                       # CLI entry point
+├── pytest.ini                    # Test configuration
 └── requirements.txt
 ```
 
@@ -97,8 +99,10 @@ The following concepts are actively used in the implementation:
 | Conditional logic | Gender-specific BMR formula; goal-based calorie adjustment |
 | Error accumulation pattern | `InputValidator` collects all errors before returning instead of failing on the first |
 | f-strings and format specifiers | CLI output formatting in `main.py` |
-| `pytest` and parametrize | 66 tests using fixtures and `@pytest.mark.parametrize` |
+| `pytest` and parametrize | 77 tests using fixtures, `@pytest.mark.parametrize`, and `unittest.mock` |
+| `unittest.mock.patch` | LLM calls are mocked in tests so the suite runs offline and instantly |
 | Type annotations | All public methods use `-> dict`, `-> Tuple[bool, List[str]]`, etc. |
+| Local LLM via Ollama | `MealPlanGenerator` calls a local `llama3.2` model through the `ollama` Python library |
 
 ### How These Concepts Are Applied
 
@@ -114,6 +118,8 @@ The following concepts are actively used in the implementation:
 **Error accumulation** — `InputValidator.validate()` checks all seven fields independently and returns the full list of errors in one call. This avoids showing the user one error at a time and improves usability.
 
 **Parameterized tests** — `test_workout_generator.py` uses `@pytest.mark.parametrize` to test all 9 goal/experience combinations (3 goals × 3 levels) with a single test function, avoiding repetition.
+
+**Local LLM integration** — `MealPlanGenerator` sends a structured prompt to a locally running `llama3.2` model via the `ollama` Python library. The prompt includes the user's calorie and macro targets; the model returns a 7-day meal calendar in plain text which is then parsed into a structured dictionary. This is the genuine AI component of the system — the LLM reasons about food combinations and portion sizes rather than following hardcoded rules.
 
 ### Tool Integration into the System
 
@@ -138,15 +144,21 @@ MacroCalculator.calculate(profile, target_calories)
 WorkoutGenerator.generate(profile)
       │  returns: 7-day schedule with exercises, sets, reps, rest
       ▼
+MealPlanGenerator.generate(profile, target_calories, macros)
+      │  sends prompt to local llama3.2 via Ollama
+      │  parses plain-text response into structured dict
+      ▼
 Assembled result dict → printed to terminal
 ```
 
 **Data transformation between tools:**
 - Raw `dict` → `UserProfile` dataclass: field names must match exactly; validated before conversion.
 - `CalorieCalculator` → `MacroCalculator`: `target_calories` (integer) is extracted from the first result and passed directly to the second tool.
-- `WorkoutGenerator` is independent and runs last; it only requires the `profile.goal` and `profile.experience_level` fields.
+- `MacroCalculator` → `MealPlanGenerator`: the full macros dict (`protein_g`, `carbs_g`, `fat_g`) and `target_calories` are forwarded to build the LLM prompt.
+- `WorkoutGenerator` is independent; it only requires `profile.goal` and `profile.experience_level`.
+- `MealPlanGenerator` returns both a structured `days` dict (parsed from the LLM output) and the `raw` text for fallback display if parsing fails.
 
-All tool outputs are plain Python dictionaries. No serialization or format conversion is needed within this system.
+All tool outputs are plain Python dictionaries. The only format conversion in the system is the parsing of the LLM's free-text response into a structured dict inside `_parse_response()`.
 
 ---
 
@@ -155,8 +167,15 @@ All tool outputs are plain Python dictionaries. No serialization or format conve
 ### Requirements
 
 - Python 3.10 or higher
+- [Ollama](https://ollama.com) installed and running locally
 
-### Install dependencies
+### Install Ollama model
+
+```bash
+ollama pull llama3.2
+```
+
+### Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -168,7 +187,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Follow the prompts to enter your name, age, weight, height, gender, activity level, goal, and experience level. The agent will then display your personalised calorie targets, macronutrient breakdown, and weekly workout plan.
+Follow the prompts to enter your name, age, weight, height, gender, activity level, goal, and experience level. The agent will calculate your nutrition targets, generate a workout plan, and use the local LLM to create a personalised 7-day meal calendar.
 
 ### Run the tests
 
@@ -176,7 +195,7 @@ Follow the prompts to enter your name, age, weight, height, gender, activity lev
 pytest
 ```
 
-All 66 tests should pass.
+All 77 tests pass. The LLM is mocked during tests so no Ollama connection is required to run the test suite.
 
 ---
 
