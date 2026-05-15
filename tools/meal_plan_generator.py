@@ -87,15 +87,28 @@ class MealPlanGenerator:
     def generate(self, profile: UserProfile, target_calories: int, macros: dict) -> dict:
         prompt = _build_prompt(profile, target_calories, macros)
 
-        response = ollama.chat(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt},
-            ],
-        )
+        try:
+            response = ollama.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": prompt},
+                ],
+            )
+            raw_text = response["message"]["content"]
+        except Exception as e:
+            return {
+                "model_used": self.model,
+                "target_calories": target_calories,
+                "target_macros": macros,
+                "days": {},
+                "raw": "",
+                "error": (
+                    f"Could not connect to Ollama ({e}). "
+                    "Make sure Ollama is running: 'ollama serve'"
+                ),
+            }
 
-        raw_text = response["message"]["content"]
         structured = _parse_response(raw_text)
 
         return {
