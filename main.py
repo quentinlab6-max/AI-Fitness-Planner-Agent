@@ -99,6 +99,10 @@ def _print_meal_plan(meal_plan: dict) -> None:
     print(f"\n--- 7-DAY MEAL PLAN  (AI generated · {meal_plan.get('model_used', 'llama3.2')}) ---")
     print(f"  Daily target: {meal_plan.get('target_calories')} kcal")
 
+    if "error" in meal_plan:
+        print(f"\n  [!] {meal_plan['error']}")
+        return
+
     days = meal_plan.get("days", {})
     if not days:
         print("\n  (raw output below)")
