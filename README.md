@@ -199,8 +199,116 @@ All 77 tests pass. The LLM is mocked during tests so no Ollama connection is req
 
 ---
 
-## Next Steps (Step 3 – 15.05)
+---
 
-- Document test scenarios with expected results
-- Describe deployment preparation
-- Explain data conversion and porting
+## Step 3 – Testing, Deployment, and Data Conversion (15.05)
+
+### Testing Process
+
+Testing was performed alongside implementation using `pytest`. Each module was tested independently as it was written, and integration tests were added once the agent pipeline was complete. The full test suite runs in under 3 seconds with no external connections required, because all LLM calls are mocked using `unittest.mock.patch`.
+
+The suite is organised into six test files covering 82 tests in total:
+
+| File | Tests | What is covered |
+|---|---|---|
+| `test_calorie_calculator.py` | 8 | BMR formula for male/female, all activity multipliers, all goal adjustments |
+| `test_macro_calculator.py` | 8 | Percentage sums, gram values, calorie coverage within 5% |
+| `test_workout_generator.py` | 21 | All 9 goal/experience combinations, day counts, exercise key structure |
+| `test_input_validator.py` | 13 | Boundary values, invalid types, multiple error accumulation |
+| `test_meal_plan_generator.py` | 16 | Prompt content, response parsing, mocked LLM, error handling |
+| `test_agent.py` | 16 | Full pipeline, all goals, all experience levels, error propagation |
+
+### Test Scenarios
+
+**Scenario 1 — Valid male profile, muscle gain**
+- Input: age 28, 80 kg, 180 cm, male, active, muscle gain, intermediate
+- Expected: `success=True`, `target_calories > tdee`, protein ratio 30%, 4 active training days/week, 7-day meal plan returned
+
+**Scenario 2 — Invalid input, age out of range**
+- Input: age 999, otherwise valid data
+- Expected: `success=False`, errors list contains age message, no tools called, no LLM contact
+
+**Scenario 3 — Weight loss goal, calorie deficit**
+- Input: any valid profile, goal = weight loss
+- Expected: `target_calories = tdee - 500`, protein ratio 35%, workout has correct active day count for experience level
+
+**Scenario 4 — Maintenance goal, no calorie adjustment**
+- Input: any valid profile, goal = maintenance
+- Expected: `target_calories == tdee`, adjustment_kcal = 0, macro split 25/50/25
+
+**Scenario 5 — All 9 workout combinations**
+- Input: each combination of (weight_loss, muscle_gain, maintenance) × (beginner, intermediate, advanced)
+- Expected: schedule has exactly 7 days, active days match (3/4/5), all exercises have name/sets/reps/rest keys
+
+**Scenario 6 — Macro percentages sum**
+- Input: any valid profile and calorie target
+- Expected: protein_pct + carbs_pct + fat_pct = 100 for every goal
+
+**Scenario 7 — Ollama connection failure**
+- Input: valid profile, Ollama service not running (simulated with mock raising Exception)
+- Expected: result contains `error` key with instructions, `days` is empty dict, no crash
+
+**Scenario 8 — Malformed LLM response**
+- Input: LLM returns partial or unexpected text format
+- Expected: `_parse_response()` returns a partial dict without raising an exception, `raw` field contains the original text as fallback
+
+**Scenario 9 — Multiple simultaneous input errors**
+- Input: age = -1, weight = 5, gender = "alien"
+- Expected: all three errors returned in a single list, validation does not stop at the first failure
+
+### Deployment Preparation
+
+The system is deployed as a **local command-line application**. No server, cloud service, or internet connection is required except for the initial model download.
+
+**Prerequisites:**
+- Python 3.10 or higher
+- [Ollama](https://ollama.com) installed on the user's machine
+
+**Installation steps:**
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/quentinlab6-max/AI-Fitness-Planner-Agent.git
+cd AI-Fitness-Planner-Agent
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Download the LLM model (one-time, ~2 GB)
+ollama pull llama3.2
+
+# 4. Run the program
+python main.py
+```
+
+**Running tests (no Ollama required):**
+
+```bash
+pytest
+```
+
+There are no environment variables required. There is no configuration file to edit. The only user-facing decision is the choice of Ollama model, which can be changed by passing the `ollama_model` parameter to `FitnessAgent()` in `main.py`.
+
+### Data Conversion and Porting
+
+The system transforms data through four distinct conversion steps:
+
+**Step 1 — Raw dict → UserProfile dataclass**
+
+The user answers CLI prompts in `main.py`, which assembles a plain Python dictionary:
+```python
+{"name": "Alice", "age": 25, "weight_kg": 65.0, ...}
+```
+After validation, `FitnessAgent` converts this into a typed `UserProfile` object via `UserProfile(**user_data)`. This conversion enforces field types and makes the data safe to pass to tools.
+
+**Step 2 — UserProfile → nutrition integers**
+
+`CalorieCalculator` reads float fields from `UserProfile` (weight, height, age) and string fields (gender, activity_level, goal) to produce rounded integers: `bmr`, `tdee`, `target_calories`. These integers are the only values passed forward — the original profile fields are not reused for nutrition calculations.
+
+**Step 3 — Integers + ratios → macro grams**
+
+`MacroCalculator` receives `target_calories` (int) and uses `profile.goal` to look up ratio constants. It applies `kcal / calories_per_gram` arithmetic and rounds the result to produce `protein_g`, `carbs_g`, `fat_g` as integers.
+
+**Step 4 — Integers → prompt string → structured dict**
+
+`MealPlanGenerator._build_prompt()` converts the integer nutrition targets into a formatted string instruction sent to the LLM. The LLM returns free-text. `_parse_response()` then converts that free text back into a structured Python dictionary by scanning each line for day headers (`Monday:`) and meal prefixes (`Breakfast`, `Lunch`, etc.). If parsing fails or is incomplete, the `raw` field preserves the original LLM text as a fallback so no data is lost.
