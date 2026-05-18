@@ -1,541 +1,203 @@
-from typing import Any, Dict, List
 from models.user_profile import UserProfile
 
-
-def _ex(name: str, sets: int, reps: str, rest: str) -> Dict[str, Any]:
-    return {"name": name, "sets": sets, "reps": reps, "rest": rest}
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
-def _rest() -> Dict[str, Any]:
+def _day(type_, dur, exercises, notes):
     return {
-        "type": "Rest",
-        "duration_min": 0,
-        "exercises": [],
-        "notes": "Active recovery — light walk or stretching if desired.",
+        "type": type_,
+        "duration_min": dur,
+        "exercises": [
+            {"name": n, "sets": s, "reps": r, "rest": rest}
+            for n, s, r, rest in exercises
+        ],
+        "notes": notes,
     }
 
 
+def _rest():
+    return {"type": "Rest", "duration_min": 0, "exercises": [],
+            "notes": "Active recovery — light walk or stretching if desired."}
+
+
+def _build_schedule(active: dict) -> dict:
+    """Fill in rest days automatically for any day not listed in active."""
+    return {day: active.get(day, _rest()) for day in DAYS}
+
+
 # ---------------------------------------------------------------------------
-# Workout plans indexed by [goal][experience_level]
+# Raw plan data: {goal: {experience: (days_per_week, focus, {day: day_dict})}}
 # ---------------------------------------------------------------------------
-PLANS: Dict[str, Dict[str, Any]] = {
-    # -----------------------------------------------------------------------
+_DATA = {
     "weight_loss": {
-        "beginner": {
-            "days_per_week": 3,
-            "focus": "Full-body circuits with cardio",
-            "schedule": {
-                "Monday": {
-                    "type": "Full Body Circuit",
-                    "duration_min": 30,
-                    "exercises": [
-                        _ex("Jumping Jacks",      3, "30 s",    "15 s"),
-                        _ex("Bodyweight Squats",  3, "15",      "30 s"),
-                        _ex("Push-ups",           3, "10",      "30 s"),
-                        _ex("Mountain Climbers",  3, "20 s",    "15 s"),
-                        _ex("Plank",              3, "30 s",    "30 s"),
-                    ],
-                    "notes": "Keep rest short to maintain elevated heart rate.",
-                },
-                "Tuesday": _rest(),
-                "Wednesday": {
-                    "type": "Cardio + Core",
-                    "duration_min": 30,
-                    "exercises": [
-                        _ex("Brisk Walk / Light Jog", 1, "20 min",   "—"),
-                        _ex("Bicycle Crunches",        3, "15 each",  "30 s"),
-                        _ex("Leg Raises",              3, "12",       "30 s"),
-                        _ex("Side Plank",              2, "20 s each","20 s"),
-                    ],
-                    "notes": "Focus on steady pace during cardio.",
-                },
-                "Thursday": _rest(),
-                "Friday": {
-                    "type": "Full Body Circuit B",
-                    "duration_min": 35,
-                    "exercises": [
-                        _ex("Burpees",          3, "10",      "30 s"),
-                        _ex("Reverse Lunges",   3, "12 each", "30 s"),
-                        _ex("Chair Dips",       3, "12",      "30 s"),
-                        _ex("High Knees",       3, "30 s",    "15 s"),
-                        _ex("Dead Bug",         3, "10",      "30 s"),
-                    ],
-                    "notes": "Progress by reducing rest time each week.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
-        "intermediate": {
-            "days_per_week": 4,
-            "focus": "Upper/Lower split with cardio finishers",
-            "schedule": {
-                "Monday": {
-                    "type": "Upper Body + Cardio",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Push-ups",          4, "15",     "45 s"),
-                        _ex("Dumbbell Rows",     4, "12",     "45 s"),
-                        _ex("Dumbbell Press",    3, "12",     "45 s"),
-                        _ex("Lateral Raises",    3, "15",     "45 s"),
-                        _ex("Jump Rope / HIIT",  1, "10 min", "—"),
-                    ],
-                    "notes": "Finish with 10 min high-intensity cardio.",
-                },
-                "Tuesday": {
-                    "type": "Lower Body + Cardio",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Goblet Squats",       4, "15",     "45 s"),
-                        _ex("Romanian Deadlift",   4, "12",     "60 s"),
-                        _ex("Walking Lunges",      3, "12 each","45 s"),
-                        _ex("Glute Bridges",       3, "20",     "30 s"),
-                        _ex("Stair Climber",       1, "10 min", "—"),
-                    ],
-                    "notes": "Drive through heels on all lower-body movements.",
-                },
-                "Wednesday": _rest(),
-                "Thursday": {
-                    "type": "Upper Body + Cardio",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Incline Push-ups",    4, "15",     "45 s"),
-                        _ex("Dumbbell Curls",      3, "15",     "45 s"),
-                        _ex("Tricep Pushdowns",    3, "15",     "45 s"),
-                        _ex("Face Pulls",          3, "15",     "45 s"),
-                        _ex("Cycling / Rowing",    1, "10 min", "—"),
-                    ],
-                    "notes": "Controlled tempo on all upper-body movements.",
-                },
-                "Friday": {
-                    "type": "Lower Body + Cardio",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Sumo Squats",           4, "15",     "45 s"),
-                        _ex("Single-Leg Deadlift",   3, "10 each","60 s"),
-                        _ex("Step-ups",              3, "12 each","45 s"),
-                        _ex("Calf Raises",           4, "20",     "30 s"),
-                        _ex("Sprint Intervals",      1, "10 min", "—"),
-                    ],
-                    "notes": "Sprint intervals at 80–90 % max effort.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
-        "advanced": {
-            "days_per_week": 5,
-            "focus": "HIIT + Strength hybrid",
-            "schedule": {
-                "Monday": {
-                    "type": "HIIT",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Box Jumps",         4, "10",    "30 s"),
-                        _ex("Kettlebell Swings", 4, "15",    "30 s"),
-                        _ex("Battle Ropes",      4, "30 s",  "30 s"),
-                        _ex("Tuck Jumps",        4, "10",    "30 s"),
-                        _ex("Sprint x Walk",     5, "200 m", "60 s"),
-                    ],
-                    "notes": "All intervals at 85–95 % max effort.",
-                },
-                "Tuesday": {
-                    "type": "Upper Body Strength",
-                    "duration_min": 50,
-                    "exercises": [
-                        _ex("Barbell Bench Press", 4, "8–10", "90 s"),
-                        _ex("Weighted Pull-ups",   4, "8",    "90 s"),
-                        _ex("Overhead Press",      3, "10",   "90 s"),
-                        _ex("Cable Rows",          3, "12",   "60 s"),
-                        _ex("Dumbbell Curls",      3, "12",   "60 s"),
-                    ],
-                    "notes": "Focus on progressive overload week to week.",
-                },
-                "Wednesday": {
-                    "type": "Lower Body Strength",
-                    "duration_min": 50,
-                    "exercises": [
-                        _ex("Barbell Back Squat",      4, "8–10",   "120 s"),
-                        _ex("Romanian Deadlift",       4, "10",     "90 s"),
-                        _ex("Leg Press",               3, "12",     "60 s"),
-                        _ex("Bulgarian Split Squat",   3, "10 each","60 s"),
-                        _ex("Calf Raises (weighted)",  4, "20",     "30 s"),
-                    ],
-                    "notes": "Strict form under heavy load.",
-                },
-                "Thursday": {
-                    "type": "HIIT + Core",
-                    "duration_min": 40,
-                    "exercises": [
-                        _ex("Rowing Machine",     1, "2000 m", "—"),
-                        _ex("Assault Bike",       4, "30 s",   "30 s"),
-                        _ex("Hanging Leg Raises", 4, "12",     "45 s"),
-                        _ex("Ab Wheel Rollout",   3, "12",     "45 s"),
-                        _ex("Pallof Press",       3, "12 each","45 s"),
-                    ],
-                    "notes": "Core engaged throughout all movements.",
-                },
-                "Friday": {
-                    "type": "Full Body Conditioning",
-                    "duration_min": 50,
-                    "exercises": [
-                        _ex("Deadlift",         4, "5",    "120 s"),
-                        _ex("Weighted Push-ups",4, "15",   "60 s"),
-                        _ex("Goblet Squats",    4, "15",   "60 s"),
-                        _ex("TRX Rows",         4, "15",   "60 s"),
-                        _ex("Farmer's Carry",   4, "40 m", "60 s"),
-                    ],
-                    "notes": "Prioritise compound movements.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
+        "beginner": (3, "Full-body circuits with cardio", {
+            "Monday":    _day("Full Body Circuit",   30, [
+                ("Jumping Jacks", 3, "30 s", "15 s"), ("Bodyweight Squats", 3, "15", "30 s"),
+                ("Push-ups", 3, "10", "30 s"), ("Mountain Climbers", 3, "20 s", "15 s"),
+                ("Plank", 3, "30 s", "30 s")], "Keep rest short to maintain elevated heart rate."),
+            "Wednesday": _day("Cardio + Core",       30, [
+                ("Brisk Walk / Light Jog", 1, "20 min", "—"), ("Bicycle Crunches", 3, "15 each", "30 s"),
+                ("Leg Raises", 3, "12", "30 s"), ("Side Plank", 2, "20 s each", "20 s")],
+                "Focus on steady pace during cardio."),
+            "Friday":    _day("Full Body Circuit B", 35, [
+                ("Burpees", 3, "10", "30 s"), ("Reverse Lunges", 3, "12 each", "30 s"),
+                ("Chair Dips", 3, "12", "30 s"), ("High Knees", 3, "30 s", "15 s"),
+                ("Dead Bug", 3, "10", "30 s")], "Progress by reducing rest time each week."),
+        }),
+        "intermediate": (4, "Upper/Lower split with cardio finishers", {
+            "Monday":    _day("Upper Body + Cardio", 45, [
+                ("Push-ups", 4, "15", "45 s"), ("Dumbbell Rows", 4, "12", "45 s"),
+                ("Dumbbell Press", 3, "12", "45 s"), ("Lateral Raises", 3, "15", "45 s"),
+                ("Jump Rope / HIIT", 1, "10 min", "—")], "Finish with 10 min high-intensity cardio."),
+            "Tuesday":   _day("Lower Body + Cardio", 45, [
+                ("Goblet Squats", 4, "15", "45 s"), ("Romanian Deadlift", 4, "12", "60 s"),
+                ("Walking Lunges", 3, "12 each", "45 s"), ("Glute Bridges", 3, "20", "30 s"),
+                ("Stair Climber", 1, "10 min", "—")], "Drive through heels on all lower-body movements."),
+            "Thursday":  _day("Upper Body + Cardio", 45, [
+                ("Incline Push-ups", 4, "15", "45 s"), ("Dumbbell Curls", 3, "15", "45 s"),
+                ("Tricep Pushdowns", 3, "15", "45 s"), ("Face Pulls", 3, "15", "45 s"),
+                ("Cycling / Rowing", 1, "10 min", "—")], "Controlled tempo on all upper-body movements."),
+            "Friday":    _day("Lower Body + Cardio", 45, [
+                ("Sumo Squats", 4, "15", "45 s"), ("Single-Leg Deadlift", 3, "10 each", "60 s"),
+                ("Step-ups", 3, "12 each", "45 s"), ("Calf Raises", 4, "20", "30 s"),
+                ("Sprint Intervals", 1, "10 min", "—")], "Sprint intervals at 80-90% max effort."),
+        }),
+        "advanced": (5, "HIIT + Strength hybrid", {
+            "Monday":    _day("HIIT",                    45, [
+                ("Box Jumps", 4, "10", "30 s"), ("Kettlebell Swings", 4, "15", "30 s"),
+                ("Battle Ropes", 4, "30 s", "30 s"), ("Tuck Jumps", 4, "10", "30 s"),
+                ("Sprint x Walk", 5, "200 m", "60 s")], "All intervals at 85-95% max effort."),
+            "Tuesday":   _day("Upper Body Strength",     50, [
+                ("Barbell Bench Press", 4, "8-10", "90 s"), ("Weighted Pull-ups", 4, "8", "90 s"),
+                ("Overhead Press", 3, "10", "90 s"), ("Cable Rows", 3, "12", "60 s"),
+                ("Dumbbell Curls", 3, "12", "60 s")], "Focus on progressive overload week to week."),
+            "Wednesday": _day("Lower Body Strength",     50, [
+                ("Barbell Back Squat", 4, "8-10", "120 s"), ("Romanian Deadlift", 4, "10", "90 s"),
+                ("Leg Press", 3, "12", "60 s"), ("Bulgarian Split Squat", 3, "10 each", "60 s"),
+                ("Calf Raises (weighted)", 4, "20", "30 s")], "Strict form under heavy load."),
+            "Thursday":  _day("HIIT + Core",             40, [
+                ("Rowing Machine", 1, "2000 m", "—"), ("Assault Bike", 4, "30 s", "30 s"),
+                ("Hanging Leg Raises", 4, "12", "45 s"), ("Ab Wheel Rollout", 3, "12", "45 s"),
+                ("Pallof Press", 3, "12 each", "45 s")], "Core engaged throughout all movements."),
+            "Friday":    _day("Full Body Conditioning",  50, [
+                ("Deadlift", 4, "5", "120 s"), ("Weighted Push-ups", 4, "15", "60 s"),
+                ("Goblet Squats", 4, "15", "60 s"), ("TRX Rows", 4, "15", "60 s"),
+                ("Farmer's Carry", 4, "40 m", "60 s")], "Prioritise compound movements."),
+        }),
     },
-    # -----------------------------------------------------------------------
     "muscle_gain": {
-        "beginner": {
-            "days_per_week": 3,
-            "focus": "Full-body strength training",
-            "schedule": {
-                "Monday": {
-                    "type": "Full Body Strength A",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Goblet Squat",         3, "10", "90 s"),
-                        _ex("Dumbbell Bench Press", 3, "10", "90 s"),
-                        _ex("Dumbbell Row",         3, "10", "90 s"),
-                        _ex("Overhead Press",       3, "10", "90 s"),
-                        _ex("Plank",                3, "30 s","30 s"),
-                    ],
-                    "notes": "Learn movement patterns before adding weight.",
-                },
-                "Tuesday": _rest(),
-                "Wednesday": {
-                    "type": "Full Body Strength B",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Romanian Deadlift",       3, "10", "90 s"),
-                        _ex("Incline Dumbbell Press",  3, "10", "90 s"),
-                        _ex("Lat Pulldown",            3, "10", "90 s"),
-                        _ex("Lateral Raises",          3, "12", "60 s"),
-                        _ex("Glute Bridges",           3, "15", "30 s"),
-                    ],
-                    "notes": "Focus on mind-muscle connection.",
-                },
-                "Thursday": _rest(),
-                "Friday": {
-                    "type": "Full Body Strength A+",
-                    "duration_min": 50,
-                    "exercises": [
-                        _ex("Goblet Squat",         4, "10", "90 s"),
-                        _ex("Dumbbell Bench Press", 4, "10", "90 s"),
-                        _ex("Dumbbell Row",         4, "10", "90 s"),
-                        _ex("Overhead Press",       3, "10", "90 s"),
-                        _ex("Dumbbell Curls",       2, "12", "60 s"),
-                    ],
-                    "notes": "Increase weight slightly from Monday if form allows.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
-        "intermediate": {
-            "days_per_week": 4,
-            "focus": "Upper/Lower strength split",
-            "schedule": {
-                "Monday": {
-                    "type": "Upper Body A",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Barbell Bench Press",    4, "8",  "120 s"),
-                        _ex("Barbell Row",            4, "8",  "120 s"),
-                        _ex("Overhead Press",         3, "10", "90 s"),
-                        _ex("Lat Pulldown",           3, "10", "90 s"),
-                        _ex("Dumbbell Curls",         3, "12", "60 s"),
-                        _ex("Skull Crushers",         3, "12", "60 s"),
-                    ],
-                    "notes": "Progress bench and row load each week.",
-                },
-                "Tuesday": {
-                    "type": "Lower Body A",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Barbell Back Squat", 4, "8",  "120 s"),
-                        _ex("Romanian Deadlift",  4, "10", "90 s"),
-                        _ex("Leg Press",          3, "12", "90 s"),
-                        _ex("Leg Curl",           3, "12", "60 s"),
-                        _ex("Calf Raises",        4, "15", "45 s"),
-                    ],
-                    "notes": "Drive squat weight up week to week.",
-                },
-                "Wednesday": _rest(),
-                "Thursday": {
-                    "type": "Upper Body B",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Incline Barbell Press",   4, "10", "90 s"),
-                        _ex("Cable Row",               4, "10", "90 s"),
-                        _ex("DB Shoulder Press",       3, "12", "90 s"),
-                        _ex("Face Pulls",              3, "15", "60 s"),
-                        _ex("Hammer Curls",            3, "12", "60 s"),
-                        _ex("Tricep Pushdowns",        3, "12", "60 s"),
-                    ],
-                    "notes": "Focus on volume and muscle pump.",
-                },
-                "Friday": {
-                    "type": "Lower Body B",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Conventional Deadlift",  4, "6",      "120 s"),
-                        _ex("Front Squat",            3, "10",     "90 s"),
-                        _ex("Walking Lunges",         3, "12 each","60 s"),
-                        _ex("Leg Extension",          3, "15",     "60 s"),
-                        _ex("Hip Thrust",             4, "12",     "60 s"),
-                    ],
-                    "notes": "Treat deadlift as a max-effort movement.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
-        "advanced": {
-            "days_per_week": 5,
-            "focus": "Push / Pull / Legs split",
-            "schedule": {
-                "Monday": {
-                    "type": "Push",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Barbell Bench Press",   5, "5",  "150 s"),
-                        _ex("Incline DB Press",      4, "10", "90 s"),
-                        _ex("Overhead Press",        4, "8",  "120 s"),
-                        _ex("Cable Flyes",           3, "15", "60 s"),
-                        _ex("Lateral Raises",        4, "15", "60 s"),
-                        _ex("Tricep Pushdowns",      3, "12", "60 s"),
-                    ],
-                    "notes": "Heavy compound first, isolation last.",
-                },
-                "Tuesday": {
-                    "type": "Pull",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Weighted Pull-ups",      5, "5",  "150 s"),
-                        _ex("Barbell Row",            4, "8",  "120 s"),
-                        _ex("Cable Row",              4, "10", "90 s"),
-                        _ex("Face Pulls",             3, "20", "60 s"),
-                        _ex("Incline DB Curls",       4, "12", "60 s"),
-                        _ex("Hammer Curls",           3, "12", "60 s"),
-                    ],
-                    "notes": "Control the eccentric on every rep.",
-                },
-                "Wednesday": {
-                    "type": "Legs",
-                    "duration_min": 70,
-                    "exercises": [
-                        _ex("Barbell Back Squat",     5, "5",      "180 s"),
-                        _ex("Romanian Deadlift",      4, "10",     "120 s"),
-                        _ex("Leg Press",              4, "12",     "90 s"),
-                        _ex("Bulgarian Split Squat",  3, "10 each","90 s"),
-                        _ex("Leg Curl",               3, "12",     "60 s"),
-                        _ex("Standing Calf Raises",   5, "15",     "45 s"),
-                    ],
-                    "notes": "Squat depth: thighs at least parallel to floor.",
-                },
-                "Thursday": {
-                    "type": "Push (Volume)",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Incline Barbell Press",  4, "8",  "120 s"),
-                        _ex("Dumbbell Bench Press",   4, "12", "90 s"),
-                        _ex("Arnold Press",           4, "10", "90 s"),
-                        _ex("Pec Deck",               3, "15", "60 s"),
-                        _ex("Overhead Tricep Ext.",   3, "12", "60 s"),
-                    ],
-                    "notes": "Moderate load — focus on hypertrophy range.",
-                },
-                "Friday": {
-                    "type": "Pull (Volume)",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Lat Pulldown",           4, "12",     "90 s"),
-                        _ex("Single-Arm DB Row",      4, "12 each","60 s"),
-                        _ex("Chest-Supported Row",    4, "12",     "60 s"),
-                        _ex("Rear Delt Flyes",        3, "20",     "45 s"),
-                        _ex("Preacher Curls",         4, "12",     "60 s"),
-                    ],
-                    "notes": "Peak contraction on all rowing movements.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
+        "beginner": (3, "Full-body strength training", {
+            "Monday":    _day("Full Body Strength A",  45, [
+                ("Goblet Squat", 3, "10", "90 s"), ("Dumbbell Bench Press", 3, "10", "90 s"),
+                ("Dumbbell Row", 3, "10", "90 s"), ("Overhead Press", 3, "10", "90 s"),
+                ("Plank", 3, "30 s", "30 s")], "Learn movement patterns before adding weight."),
+            "Wednesday": _day("Full Body Strength B",  45, [
+                ("Romanian Deadlift", 3, "10", "90 s"), ("Incline Dumbbell Press", 3, "10", "90 s"),
+                ("Lat Pulldown", 3, "10", "90 s"), ("Lateral Raises", 3, "12", "60 s"),
+                ("Glute Bridges", 3, "15", "30 s")], "Focus on mind-muscle connection."),
+            "Friday":    _day("Full Body Strength A+", 50, [
+                ("Goblet Squat", 4, "10", "90 s"), ("Dumbbell Bench Press", 4, "10", "90 s"),
+                ("Dumbbell Row", 4, "10", "90 s"), ("Overhead Press", 3, "10", "90 s"),
+                ("Dumbbell Curls", 2, "12", "60 s")], "Increase weight slightly from Monday if form allows."),
+        }),
+        "intermediate": (4, "Upper/Lower strength split", {
+            "Monday":    _day("Upper Body A", 60, [
+                ("Barbell Bench Press", 4, "8", "120 s"), ("Barbell Row", 4, "8", "120 s"),
+                ("Overhead Press", 3, "10", "90 s"), ("Lat Pulldown", 3, "10", "90 s"),
+                ("Dumbbell Curls", 3, "12", "60 s"), ("Skull Crushers", 3, "12", "60 s")],
+                "Progress bench and row load each week."),
+            "Tuesday":   _day("Lower Body A", 60, [
+                ("Barbell Back Squat", 4, "8", "120 s"), ("Romanian Deadlift", 4, "10", "90 s"),
+                ("Leg Press", 3, "12", "90 s"), ("Leg Curl", 3, "12", "60 s"),
+                ("Calf Raises", 4, "15", "45 s")], "Drive squat weight up week to week."),
+            "Thursday":  _day("Upper Body B", 60, [
+                ("Incline Barbell Press", 4, "10", "90 s"), ("Cable Row", 4, "10", "90 s"),
+                ("DB Shoulder Press", 3, "12", "90 s"), ("Face Pulls", 3, "15", "60 s"),
+                ("Hammer Curls", 3, "12", "60 s"), ("Tricep Pushdowns", 3, "12", "60 s")],
+                "Focus on volume and muscle pump."),
+            "Friday":    _day("Lower Body B", 60, [
+                ("Conventional Deadlift", 4, "6", "120 s"), ("Front Squat", 3, "10", "90 s"),
+                ("Walking Lunges", 3, "12 each", "60 s"), ("Leg Extension", 3, "15", "60 s"),
+                ("Hip Thrust", 4, "12", "60 s")], "Treat deadlift as a max-effort movement."),
+        }),
+        "advanced": (5, "Push / Pull / Legs split", {
+            "Monday":    _day("Push",          60, [
+                ("Barbell Bench Press", 5, "5", "150 s"), ("Incline DB Press", 4, "10", "90 s"),
+                ("Overhead Press", 4, "8", "120 s"), ("Cable Flyes", 3, "15", "60 s"),
+                ("Lateral Raises", 4, "15", "60 s"), ("Tricep Pushdowns", 3, "12", "60 s")],
+                "Heavy compound first, isolation last."),
+            "Tuesday":   _day("Pull",          60, [
+                ("Weighted Pull-ups", 5, "5", "150 s"), ("Barbell Row", 4, "8", "120 s"),
+                ("Cable Row", 4, "10", "90 s"), ("Face Pulls", 3, "20", "60 s"),
+                ("Incline DB Curls", 4, "12", "60 s"), ("Hammer Curls", 3, "12", "60 s")],
+                "Control the eccentric on every rep."),
+            "Wednesday": _day("Legs",          70, [
+                ("Barbell Back Squat", 5, "5", "180 s"), ("Romanian Deadlift", 4, "10", "120 s"),
+                ("Leg Press", 4, "12", "90 s"), ("Bulgarian Split Squat", 3, "10 each", "90 s"),
+                ("Leg Curl", 3, "12", "60 s"), ("Standing Calf Raises", 5, "15", "45 s")],
+                "Squat depth: thighs at least parallel to floor."),
+            "Thursday":  _day("Push (Volume)", 60, [
+                ("Incline Barbell Press", 4, "8", "120 s"), ("Dumbbell Bench Press", 4, "12", "90 s"),
+                ("Arnold Press", 4, "10", "90 s"), ("Pec Deck", 3, "15", "60 s"),
+                ("Overhead Tricep Ext.", 3, "12", "60 s")], "Moderate load — focus on hypertrophy range."),
+            "Friday":    _day("Pull (Volume)", 60, [
+                ("Lat Pulldown", 4, "12", "90 s"), ("Single-Arm DB Row", 4, "12 each", "60 s"),
+                ("Chest-Supported Row", 4, "12", "60 s"), ("Rear Delt Flyes", 3, "20", "45 s"),
+                ("Preacher Curls", 4, "12", "60 s")], "Peak contraction on all rowing movements."),
+        }),
     },
-    # -----------------------------------------------------------------------
     "maintenance": {
-        "beginner": {
-            "days_per_week": 3,
-            "focus": "Balanced fitness — strength and cardio",
-            "schedule": {
-                "Monday": {
-                    "type": "Full Body Strength",
-                    "duration_min": 35,
-                    "exercises": [
-                        _ex("Bodyweight Squats", 3, "15",  "45 s"),
-                        _ex("Push-ups",          3, "12",  "45 s"),
-                        _ex("Dumbbell Row",      3, "12",  "45 s"),
-                        _ex("Glute Bridges",     3, "15",  "30 s"),
-                        _ex("Plank",             3, "30 s","30 s"),
-                    ],
-                    "notes": "Consistency matters more than intensity.",
-                },
-                "Tuesday": _rest(),
-                "Wednesday": {
-                    "type": "Cardio + Flexibility",
-                    "duration_min": 35,
-                    "exercises": [
-                        _ex("Brisk Walk",          1, "20 min",   "—"),
-                        _ex("Hip Flexor Stretch",  2, "30 s each","—"),
-                        _ex("Hamstring Stretch",   2, "30 s each","—"),
-                        _ex("Shoulder Circles",    2, "10 each",  "—"),
-                        _ex("Foam Rolling",        1, "5 min",    "—"),
-                    ],
-                    "notes": "Focus on breathing and relaxation.",
-                },
-                "Thursday": _rest(),
-                "Friday": {
-                    "type": "Full Body Strength B",
-                    "duration_min": 35,
-                    "exercises": [
-                        _ex("Reverse Lunges",   3, "12 each","45 s"),
-                        _ex("Dumbbell Press",   3, "12",     "45 s"),
-                        _ex("Lat Pulldown",     3, "12",     "45 s"),
-                        _ex("Dumbbell Curls",   2, "12",     "45 s"),
-                        _ex("Dead Bug",         3, "10",     "30 s"),
-                    ],
-                    "notes": "Finish with light stretching.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
-        "intermediate": {
-            "days_per_week": 4,
-            "focus": "Strength + Cardio + Flexibility balance",
-            "schedule": {
-                "Monday": {
-                    "type": "Strength",
-                    "duration_min": 50,
-                    "exercises": [
-                        _ex("Barbell Squat",   4, "8",     "90 s"),
-                        _ex("Bench Press",     4, "8",     "90 s"),
-                        _ex("Pull-ups",        3, "8–10",  "90 s"),
-                        _ex("Overhead Press",  3, "10",    "60 s"),
-                        _ex("Core Circuit",    1, "5 min", "—"),
-                    ],
-                    "notes": "Submaximal effort — no need for max-out attempts.",
-                },
-                "Tuesday": {
-                    "type": "Cardio + Mobility",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Cycling / Running",  1, "25 min", "—"),
-                        _ex("Dynamic Stretching", 1, "10 min", "—"),
-                        _ex("Yoga Flow",          1, "10 min", "—"),
-                    ],
-                    "notes": "Keep heart rate at 60–70 % max.",
-                },
-                "Wednesday": _rest(),
-                "Thursday": {
-                    "type": "Strength B",
-                    "duration_min": 50,
-                    "exercises": [
-                        _ex("Romanian Deadlift", 4, "10",   "90 s"),
-                        _ex("Incline Press",     4, "10",   "90 s"),
-                        _ex("Cable Row",         3, "12",   "60 s"),
-                        _ex("Dips",              3, "12",   "60 s"),
-                        _ex("Farmer's Carry",    3, "30 m", "60 s"),
-                    ],
-                    "notes": "Alternate main lifts week to week for variety.",
-                },
-                "Friday": {
-                    "type": "Cardio + Flexibility",
-                    "duration_min": 45,
-                    "exercises": [
-                        _ex("Swimming / Rowing",   1, "25 min", "—"),
-                        _ex("Static Stretching",   1, "15 min", "—"),
-                        _ex("Breathing Exercises", 1, "5 min",  "—"),
-                    ],
-                    "notes": "Active recovery mindset — enjoy the movement.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
-        "advanced": {
-            "days_per_week": 5,
-            "focus": "Periodised maintenance with athletic performance",
-            "schedule": {
-                "Monday": {
-                    "type": "Upper Strength",
-                    "duration_min": 55,
-                    "exercises": [
-                        _ex("Barbell Bench Press",  5, "5",  "120 s"),
-                        _ex("Weighted Pull-ups",    5, "5",  "120 s"),
-                        _ex("Overhead Press",       4, "8",  "90 s"),
-                        _ex("Dumbbell Row",         4, "10", "90 s"),
-                        _ex("Tricep/Bicep Superset",3, "12", "60 s"),
-                    ],
-                    "notes": "Submaximal — leave 2 reps in the tank.",
-                },
-                "Tuesday": {
-                    "type": "Cardio",
-                    "duration_min": 35,
-                    "exercises": [
-                        _ex("Zone 2 Run / Bike", 1, "30 min", "—"),
-                        _ex("Dynamic Warm-down", 1, "5 min",  "—"),
-                    ],
-                    "notes": "Conversational pace — nose-breathing test.",
-                },
-                "Wednesday": {
-                    "type": "Lower Strength",
-                    "duration_min": 60,
-                    "exercises": [
-                        _ex("Barbell Squat",        5, "5",  "150 s"),
-                        _ex("Conventional Deadlift",4, "5",  "150 s"),
-                        _ex("Leg Press",            3, "12", "90 s"),
-                        _ex("Nordic Curl",          3, "8",  "90 s"),
-                        _ex("Calf Raises",          4, "15", "45 s"),
-                    ],
-                    "notes": "Track squat and deadlift numbers each week.",
-                },
-                "Thursday": {
-                    "type": "Cardio + Core",
-                    "duration_min": 40,
-                    "exercises": [
-                        _ex("Assault Bike / Swim",  1, "20 min", "—"),
-                        _ex("Weighted Plank",       4, "30 s",   "30 s"),
-                        _ex("Dragon Flag",          3, "8",      "60 s"),
-                        _ex("L-Sit Progression",    3, "15 s",   "45 s"),
-                    ],
-                    "notes": "Core targets anti-rotation and anti-extension.",
-                },
-                "Friday": {
-                    "type": "Full Body Athletic",
-                    "duration_min": 55,
-                    "exercises": [
-                        _ex("Power Clean / Jump Squat", 4, "5",      "120 s"),
-                        _ex("Dumbbell Bench",            3, "12",     "90 s"),
-                        _ex("Single-Leg RDL",           3, "10 each","60 s"),
-                        _ex("TRX Rows",                 3, "15",     "60 s"),
-                        _ex("Med Ball Slams",            4, "10",     "45 s"),
-                    ],
-                    "notes": "Explosive movements first, then hypertrophy accessory work.",
-                },
-                "Saturday": _rest(),
-                "Sunday":   _rest(),
-            },
-        },
+        "beginner": (3, "Balanced fitness — strength and cardio", {
+            "Monday":    _day("Full Body Strength",   35, [
+                ("Bodyweight Squats", 3, "15", "45 s"), ("Push-ups", 3, "12", "45 s"),
+                ("Dumbbell Row", 3, "12", "45 s"), ("Glute Bridges", 3, "15", "30 s"),
+                ("Plank", 3, "30 s", "30 s")], "Consistency matters more than intensity."),
+            "Wednesday": _day("Cardio + Flexibility", 35, [
+                ("Brisk Walk", 1, "20 min", "—"), ("Hip Flexor Stretch", 2, "30 s each", "—"),
+                ("Hamstring Stretch", 2, "30 s each", "—"), ("Shoulder Circles", 2, "10 each", "—"),
+                ("Foam Rolling", 1, "5 min", "—")], "Focus on breathing and relaxation."),
+            "Friday":    _day("Full Body Strength B", 35, [
+                ("Reverse Lunges", 3, "12 each", "45 s"), ("Dumbbell Press", 3, "12", "45 s"),
+                ("Lat Pulldown", 3, "12", "45 s"), ("Dumbbell Curls", 2, "12", "45 s"),
+                ("Dead Bug", 3, "10", "30 s")], "Finish with light stretching."),
+        }),
+        "intermediate": (4, "Strength + Cardio + Flexibility balance", {
+            "Monday":    _day("Strength",            50, [
+                ("Barbell Squat", 4, "8", "90 s"), ("Bench Press", 4, "8", "90 s"),
+                ("Pull-ups", 3, "8-10", "90 s"), ("Overhead Press", 3, "10", "60 s"),
+                ("Core Circuit", 1, "5 min", "—")], "Submaximal effort — no need for max-out attempts."),
+            "Tuesday":   _day("Cardio + Mobility",   45, [
+                ("Cycling / Running", 1, "25 min", "—"), ("Dynamic Stretching", 1, "10 min", "—"),
+                ("Yoga Flow", 1, "10 min", "—")], "Keep heart rate at 60-70% max."),
+            "Thursday":  _day("Strength B",          50, [
+                ("Romanian Deadlift", 4, "10", "90 s"), ("Incline Press", 4, "10", "90 s"),
+                ("Cable Row", 3, "12", "60 s"), ("Dips", 3, "12", "60 s"),
+                ("Farmer's Carry", 3, "30 m", "60 s")], "Alternate main lifts week to week for variety."),
+            "Friday":    _day("Cardio + Flexibility", 45, [
+                ("Swimming / Rowing", 1, "25 min", "—"), ("Static Stretching", 1, "15 min", "—"),
+                ("Breathing Exercises", 1, "5 min", "—")], "Active recovery mindset — enjoy the movement."),
+        }),
+        "advanced": (5, "Periodised maintenance with athletic performance", {
+            "Monday":    _day("Upper Strength",    55, [
+                ("Barbell Bench Press", 5, "5", "120 s"), ("Weighted Pull-ups", 5, "5", "120 s"),
+                ("Overhead Press", 4, "8", "90 s"), ("Dumbbell Row", 4, "10", "90 s"),
+                ("Tricep/Bicep Superset", 3, "12", "60 s")], "Submaximal — leave 2 reps in the tank."),
+            "Tuesday":   _day("Cardio",            35, [
+                ("Zone 2 Run / Bike", 1, "30 min", "—"),
+                ("Dynamic Warm-down", 1, "5 min", "—")], "Conversational pace — nose-breathing test."),
+            "Wednesday": _day("Lower Strength",    60, [
+                ("Barbell Squat", 5, "5", "150 s"), ("Conventional Deadlift", 4, "5", "150 s"),
+                ("Leg Press", 3, "12", "90 s"), ("Nordic Curl", 3, "8", "90 s"),
+                ("Calf Raises", 4, "15", "45 s")], "Track squat and deadlift numbers each week."),
+            "Thursday":  _day("Cardio + Core",     40, [
+                ("Assault Bike / Swim", 1, "20 min", "—"), ("Weighted Plank", 4, "30 s", "30 s"),
+                ("Dragon Flag", 3, "8", "60 s"), ("L-Sit Progression", 3, "15 s", "45 s")],
+                "Core targets anti-rotation and anti-extension."),
+            "Friday":    _day("Full Body Athletic", 55, [
+                ("Power Clean / Jump Squat", 4, "5", "120 s"), ("Dumbbell Bench", 3, "12", "90 s"),
+                ("Single-Leg RDL", 3, "10 each", "60 s"), ("TRX Rows", 3, "15", "60 s"),
+                ("Med Ball Slams", 4, "10", "45 s")], "Explosive movements first, then hypertrophy work."),
+        }),
     },
 }
 
@@ -544,11 +206,11 @@ class WorkoutGenerator:
     """Tool: Generates a personalised weekly workout plan based on goal and experience level."""
 
     def generate(self, profile: UserProfile) -> dict:
-        plan = PLANS[profile.goal][profile.experience_level]
+        days_per_week, focus, active = _DATA[profile.goal][profile.experience_level]
         return {
-            "goal": profile.goal,
+            "goal":             profile.goal,
             "experience_level": profile.experience_level,
-            "days_per_week": plan["days_per_week"],
-            "focus": plan["focus"],
-            "schedule": plan["schedule"],
+            "days_per_week":    days_per_week,
+            "focus":            focus,
+            "schedule":         _build_schedule(active),
         }
