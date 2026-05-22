@@ -312,3 +312,115 @@ After validation, `FitnessAgent` converts this into a typed `UserProfile` object
 **Step 4 — Integers → prompt string → structured dict**
 
 `MealPlanGenerator._build_prompt()` converts the integer nutrition targets into a formatted string instruction sent to the LLM. The LLM returns free-text. `_parse_response()` then converts that free text back into a structured Python dictionary by scanning each line for day headers (`Monday:`) and meal prefixes (`Breakfast`, `Lunch`, etc.). If parsing fails or is incomplete, the `raw` field preserves the original LLM text as a fallback so no data is lost.
+
+---
+
+## Step 4 – Final Submission (22.05)
+
+### Final System Description
+
+The AI Fitness Planner Agent is a local command-line application that generates a fully personalised fitness plan from a small set of user inputs. The user provides basic physical data (age, weight, height, gender), an activity level, a fitness goal, and an experience level. The agent validates the input, then calls four tools in sequence to produce a complete plan covering daily calorie targets, macronutrient distribution, a weekly workout schedule, and a 7-day AI-generated meal calendar.
+
+The system is complete and stable. All four tools are implemented, tested, and connected through a single agent pipeline. The final version of the code is leaner than earlier drafts: `workout_generator.py` was refactored twice during the project and went from approximately 555 lines to under 100, without losing any workout data or functionality.
+
+### Final Programming Concepts and Their Usage
+
+| Concept | Where it is applied |
+|---|---|
+| `@dataclass` and `Literal` type hints | `UserProfile` — typed model that constrains allowed values at definition time |
+| Object-oriented design | Each tool is a class with a single public method; `FitnessAgent` orchestrates them |
+| Modular project structure | Code split across `agent/`, `tools/`, `models/`, `validation/`, `tests/` |
+| Variadic function arguments (`*args`) | `_day(type_, dur, *exs)` in `workout_generator.py` — each exercise tuple is unpacked directly |
+| Dict comprehension | `{day: active.get(day, _rest()) for day in DAYS}` builds the 7-day schedule in one line |
+| Mifflin-St Jeor formula | `CalorieCalculator` computes BMR, applies activity multiplier, then applies goal adjustment |
+| Error accumulation pattern | `InputValidator` collects all field errors before returning so the user sees every problem at once |
+| try / except | `MealPlanGenerator.generate()` catches any Ollama exception and returns a structured error dict instead of crashing |
+| `pytest`, fixtures, `parametrize` | 82 tests using `@pytest.fixture`, `@pytest.mark.parametrize`, and `autouse=True` mock fixtures |
+| `unittest.mock.patch` | All `ollama.chat` calls are mocked so the test suite runs offline in under 2 seconds |
+| Prompt engineering | `_build_prompt()` encodes the user's nutritional targets into a structured natural-language instruction |
+| Free-text parsing | `_parse_response()` scans LLM output line by line to reconstruct a structured Python dictionary |
+| Local LLM via Ollama | `MealPlanGenerator` sends a prompt to `llama3.2` running locally; the model reasons about food combinations |
+
+### Final Description of Tools and Their Role
+
+The agent calls five tools in a fixed order. Each tool receives the output of the previous one as part of its input.
+
+| Tool | Class | Input | Output |
+|---|---|---|---|
+| Input validation | `InputValidator` | Raw `dict` from CLI | `(True, [])` or `(False, [error strings])` |
+| Calorie calculation | `CalorieCalculator` | `UserProfile` | `bmr`, `tdee`, `target_calories`, `adjustment_kcal` |
+| Macro calculation | `MacroCalculator` | `UserProfile` + `target_calories` | `protein_g`, `carbs_g`, `fat_g`, percentages |
+| Workout generation | `WorkoutGenerator` | `UserProfile` | 7-day schedule with exercises, sets, reps, rest |
+| Meal plan generation | `MealPlanGenerator` | `UserProfile` + calories + macros | 7-day meal calendar from local LLM (`llama3.2`) |
+
+`InputValidator` is the only tool that can stop the pipeline early. If it returns errors, no further tools are called and the agent returns the error list to the user.
+
+### Final Testing Results and Conclusions
+
+The test suite contains 82 tests across 6 files and passes in full in under 2 seconds.
+
+```
+82 passed in 1.69s
+```
+
+| File | Tests | Result |
+|---|---|---|
+| `test_calorie_calculator.py` | 8 | All pass |
+| `test_macro_calculator.py` | 8 | All pass |
+| `test_workout_generator.py` | 21 | All pass |
+| `test_input_validator.py` | 13 | All pass |
+| `test_meal_plan_generator.py` | 16 | All pass |
+| `test_agent.py` | 16 | All pass |
+
+One issue was found during development: Python's banker's rounding (`round()`) produced a different TDEE value than expected in one test. The test expected value was corrected once the rounding behaviour was understood. No other unexpected failures occurred.
+
+The LLM integration was tested by mocking `ollama.chat` with `unittest.mock.patch`. This approach verified prompt construction, response parsing, structured output, and error handling without requiring a running Ollama instance. The `raw` fallback field was also verified: when parsing fails, the original LLM text is preserved in the result so no information is lost.
+
+### Final Deployment Preparation
+
+The system runs as a local CLI application. There is no server, no cloud dependency, and no internet connection required after the initial model download.
+
+**Requirements:**
+- Python 3.10 or higher
+- [Ollama](https://ollama.com) installed and running locally
+
+**Installation and startup:**
+
+```bash
+# Clone the repository
+git clone https://github.com/quentinlab6-max/AI-Fitness-Planner-Agent.git
+cd AI-Fitness-Planner-Agent
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Download the LLM (one-time, approximately 2 GB)
+ollama pull llama3.2
+
+# Run the program
+python main.py
+```
+
+**Run the tests (no Ollama required):**
+
+```bash
+pytest
+```
+
+No environment variables are required. No configuration file needs to be edited. The only optional change a user can make is selecting a different Ollama model by passing `ollama_model="<name>"` to `FitnessAgent()` in `main.py`.
+
+### Deployment Strategy
+
+The system is deployed as a **local command-line application**. This strategy was chosen because:
+
+- The LLM runs locally via Ollama, so no API key or network connection is needed during use.
+- All computation (BMR, macros, workout lookup) is deterministic and fast.
+- The target user is an individual running the tool on their own machine.
+
+If the system were to be extended for multi-user or web access, the appropriate next step would be to wrap the agent in a lightweight web API (for example using FastAPI) and replace the local Ollama call with a managed LLM API such as the Anthropic Claude API. The tool layer would remain unchanged because each tool is already a self-contained class with a single method and no shared state.
+
+For a staged release, the recommended approach would be:
+
+1. Local testing on developer machine (current state).
+2. Packaged distribution via `pip install` with a `pyproject.toml` entry point.
+3. Optional web deployment behind a simple API layer once the LLM backend is swapped to a hosted service.
